@@ -13,13 +13,14 @@ LOG_LEVEL="INFO"
 def make_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument('path', help='path to data archvie')
+    parser.add_argument('-s', '--start'
+                        , help='start of the timeperiod to extract data for (exclusive)'
+                        , default='Jan 01 1970')
     parser.add_argument('-e', '--end'
                         , help='end of the timeperiod to extract data for (inclusive)'
                         , default='Dec 31 2100') # Hope nobody is using this in 77 years
     parser.add_argument('-o', '--out', help='path to write cleaned archive to')
-    parser.add_argument('-s', '--start'
-                        , help='start of the timeperiod to extract data for (exclusive)'
-                        , default='Jan 01 1970')
+    
     return parser
 
 def sha256_file(some_path):
