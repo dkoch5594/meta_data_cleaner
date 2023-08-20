@@ -38,7 +38,6 @@ def sha256_file(some_path):
 
 # Function to check if date is in given range
 def is_date_in_range(date_string, start, end):
-    
     parsed_date = dateparser.parse(date_string)
     logging.debug('parsed_date: {}'.format(parsed_date))
     if parsed_date is None:
@@ -55,48 +54,38 @@ def delete_divs(html, start, end):
     # div classes that contain content
     entry_classes = ['_3-95', '_2pi3']
 
-    # div classes that contain timestamps
-    ts_classes = ['_3-94']
+    # there are lots of different formats
+    # Oct 05, 2012 4:58:09pm
+    # August 3, 2021 at 10:11 AM
+    # Jul 14, 2023, 5:32 PM
+    # one pattern to rule them all
+    ts_pattern = r'^\w+\s\d{1,2},\s\d{4},?\s(at )?\d{1,2}:\d{2}(:\d{2}|\s)\w+$'
 
     # make soup
     soup = BeautifulSoup(html, 'html.parser')
 
-    ''' Ignore this for now, hope we don't need it
-    # there are lots of different formats
-    date_patterns = [
-        # Oct 05, 2012 4:58:09pm
-        #r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s\d{2},\s\d{4}\b'
-        r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s\d{2},\s\d{4}\s\d{1,2}:\d{1,2}:\d{1,2}(am|pm)'
-        # August 3, 2021 at 10:11 AM
-        # #,r'(January|February|March|April|May|June|July|August|September|August|September|October|November|December)\s\d{1,2},\s\d{4}'
-        ,r'(January|February|March|April|May|June|July|August|September|August|September|October|November|December)\s\d{1,2},\s\d{4}\sat\s\d{1,2}:\d{1,2}\s(AM|PM)'
-        #Jul 14, 2023, 5:32 PM
-        ,r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s\d{1,2},\s\d{4},\s\d{1,2}:\d{1,2}\s(AM|PM)'
-    ]
-    '''
-
     # Find div tags with the specified class
     for ec in entry_classes:
         entries = soup.find_all('div', class_=ec)
-        
-        ''' Different approach
-        # Iterate over div tags and remove ones with the date in the specified format
-        for tag in div_tags:
-            for dp in date_patterns:
-                match = re.search(dp, tag.text)
 
-                if match:
-                    date_string = match.group()
-        '''
-
-        # find timestamps in entries by class
+        # find timestamps
+        # look for div elements whose entire .text matches ts_pattern
         for e in entries:
-            for tc in ts_classes:
-                timestamps = e.find_all('div', class_=tc)
-                for stamp in timestamps:
-                    if not is_date_in_range(stamp.text, start, end):
-                        logging.info('Deleting div for date {}'.format(stamp.text))
-                        e.decompose()
+            content_divs = e.find_all('div')
+            for cd in content_divs:
+                # check the length of the supposed timestamp to avoid recursion issues
+                # if it's too long, it's probably a parent div that will be sub-parsed
+                if len(cd.text) > 50:
+                    continue
+                if re.match(ts_pattern, cd.text):
+                    try:
+                        if not is_date_in_range(cd.text, start, end):
+                            logging.info('Deleting div for date {}'.format(cd.text))
+                            e.decompose()
+                    except RecursionError:
+                        logging.error('RecursionError encountered')
+                        logging.debug('stamp.text: {}'.format(cd.text))
+                        exit(1)
     return str(soup)
 
 def get_media_srcs(html):
@@ -107,7 +96,8 @@ def get_media_srcs(html):
 
     for element in soup.find_all(media_tags):
         src = element['src']
-        # don't include images embeded in the html, or this one thing that doesn't exist
+        # don't include images embeded in the html, 
+        #  remotely loaded resources, or this one thing that doesn't exist
         if not src.startswith('data:') and not src.startswith('https://') and not src.startswith('http://') \
             and src != r'comments_and_reactions/icons/none.png' and src != '':
             srcs.append(src)
@@ -122,7 +112,6 @@ if __name__ == '__main__':
         raise ValueError('Invalid log level: %s' % LOG_LEVEL)
     logging.basicConfig(
         stream=stdout
-        #,format='%(asctime)s %(levelname)s (%(module)s-%(funcName)s-%(lineno)s): %(message)s'
         ,format='%(asctime)s %(levelname)s: %(message)s'
         ,level=NUMERIC_LEVEL
     )
