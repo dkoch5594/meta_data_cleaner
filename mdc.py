@@ -5,7 +5,7 @@ import hashlib
 import logging
 import os.path as path
 import re
-from sys import stdout
+import sys
 import zipfile
 
 LOG_LEVEL="INFO"
@@ -23,6 +23,31 @@ def make_parser():
     
     return parser
 
+def make_logger(out_path):
+    NUMERIC_LEVEL = getattr(logging, LOG_LEVEL.upper(), None)
+    if not isinstance(NUMERIC_LEVEL, int):
+        # no logging yet, but we didn't do anything so ¯\_(ツ)_/¯
+        print('ERROR: Invalid log level: %s' % LOG_LEVEL)
+        exit(1)
+    
+    logger = logging.getLogger(sys.argv[0])
+    logger.setLevel(NUMERIC_LEVEL)
+
+    formatter = logging.Formatter('%(asctime)s %(levelname)s: %(message)s')
+
+    soh = logging.StreamHandler(stream=sys.stdout)
+    soh.setLevel(NUMERIC_LEVEL)
+    soh.setFormatter(formatter)
+    logger.addHandler(soh)
+
+    log_path = path.join(path.dirname(out_path),'mdc_log.txt')
+    fh = logging.FileHandler(log_path, mode='w')
+    fh.setLevel(NUMERIC_LEVEL)
+    fh.setFormatter(formatter)
+    logger.addHandler(fh)
+
+    return logger
+
 def sha256_file(some_path):
     # shamelessly stolen
     # https://stackoverflow.com/questions/22058048/hashing-a-file-in-python
@@ -34,19 +59,19 @@ def sha256_file(some_path):
             if not data:
                 break
             HASH.update(data)
-    logging.info('SHA256({}): {}'.format(some_path, HASH.hexdigest()))
+    return HASH
 
 # Function to check if date is in given range
 def is_date_in_range(date_string, start, end):
     parsed_date = dateparser.parse(date_string)
-    logging.debug('parsed_date: {}'.format(parsed_date))
+    logger.debug('parsed_date: {}'.format(parsed_date))
     if parsed_date is None:
         return True
-    logging.debug('start: {}'.format(start))
+    logger.debug('start: {}'.format(start))
     start_date = dateparser.parse(start)
-    logging.debug('start_date: {}'.format(start_date))
+    logger.debug('start_date: {}'.format(start_date))
     end_date = dateparser.parse(end)
-    logging.debug('end_date: {}'.format(end_date))
+    logger.debug('end_date: {}'.format(end_date))
     
     return (start_date <= parsed_date < end_date)
 
@@ -80,11 +105,11 @@ def delete_divs(html, start, end):
                 if re.match(ts_pattern, cd.text):
                     try:
                         if not is_date_in_range(cd.text, start, end):
-                            logging.info('Deleting div for date {}'.format(cd.text))
+                            logger.info('Deleting div for date {}'.format(cd.text))
                             e.decompose()
                     except RecursionError:
-                        logging.error('RecursionError encountered')
-                        logging.debug('stamp.text: {}'.format(cd.text))
+                        logger.error('RecursionError encountered')
+                        logger.debug('stamp.text: {}'.format(cd.text))
                         exit(1)
     return str(soup)
 
@@ -106,28 +131,12 @@ def get_media_srcs(html):
 
 if __name__ == '__main__':
     SUFFIX = '_CLEANED'
-    
-    NUMERIC_LEVEL = getattr(logging, LOG_LEVEL.upper(), None)
-    if not isinstance(NUMERIC_LEVEL, int):
-        raise ValueError('Invalid log level: %s' % LOG_LEVEL)
-    logging.basicConfig(
-        stream=stdout
-        ,format='%(asctime)s %(levelname)s: %(message)s'
-        ,level=NUMERIC_LEVEL
-    )
+    out_path = ''
 
     # get arguments
     args = make_parser().parse_args()
-    logging.debug(args)
-    
-    if zipfile.is_zipfile(args.path):
-        logging.info('Using {} as input file'.format(args.path))
-    else:
-        logging.critical('Input file must be a zip archive')
-        exit(1)
 
-    # calculate the output path
-    out_path = ''
+    # logging requires out_path, so figure that out
     if args.out:
         if path.isdir(args.out):
             fn = path.basename(args.path)
@@ -138,10 +147,34 @@ if __name__ == '__main__':
     else:
         (base, ext) = path.splitext(args.path)
         out_path = base + SUFFIX + ext
-    logging.info('Writing cleaned file to {}'.format(out_path))
+
+    logger = make_logger(out_path)
+    
+    # log things now that we can
+    logger.debug(args)
+    if zipfile.is_zipfile(args.path):
+        logger.info('Using {} as input file'.format(args.path))
+    else:
+        logger.critical('Input file must be a zip archive')
+        exit(1)
+    start_dt = dateparser.parse(args.start)
+    if start_dt:
+        logger.info('Deleting content with timestamps prior to {}'.format(start_dt))
+    else:
+        logger.critical('start value must be a valid date')
+        exit(1)
+    end_dt = dateparser.parse(args.end)
+    if end_dt:
+        logger.info('Deleting content with timestamps after {}'.format(end_dt))
+    else:
+        logger.critical('end value must be a valid date')
+        exit(1)
+    logger.info('Writing cleaned file to {}'.format(out_path))
+    
 
     # get the input file hash
-    sha256_file(args.path)
+    in_hash = sha256_file(args.path)
+    logger.info('SHA256({}): {}'.format(args.path, in_hash.hexdigest()))
 
     # open the zip archives
     with zipfile.ZipFile(args.path, 'r') as in_zip:
@@ -151,7 +184,7 @@ if __name__ == '__main__':
             for item in in_zip.infolist():    
                 (root,ext) = path.splitext(item.filename)
                 if ext == '.html':
-                    logging.info('Parsing {}'.format(item.filename))
+                    logger.info('Parsing {}'.format(item.filename))
                     with in_zip.open(item, 'r') as in_file:
                         # remove divs based on the time
                         out_html = delete_divs(in_file.read(), args.start, args.end)
@@ -164,7 +197,7 @@ if __name__ == '__main__':
                                 out_zip.getinfo(src)
                             except KeyError:
                                 # file does not already exist, copy it
-                                logging.info('Copying {} to new archive'.format(src))
+                                logger.info('Copying {} to new archive'.format(src))
                                 with in_zip.open(src, 'r') as src_file:
                                     out_zip.writestr(src, src_file.read())
 
@@ -172,4 +205,5 @@ if __name__ == '__main__':
                         out_zip.writestr(item, out_html)
 
     # get the output file hash
-    sha256_file(out_path)
+    out_hash = sha256_file(out_path)
+    logger.info('SHA256({}): {}'.format(out_path, out_hash.hexdigest()))
