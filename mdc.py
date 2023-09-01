@@ -50,12 +50,12 @@ def make_logger(out_path):
     return logger
 
 def banner():
-    return '''     __   __           ______       ______
-    /  | /  |         / ___  |     / ____/
-   /   |/   |        / /   | |    / /
-  / /|   /| |       / /    / |   / /
- / / |  / | |      / /____/ /    | |____
-/_/  |_/  |_| eta /________/ ata  \____/ leaner'''
+    return '''     __   __           _____       ______
+    /  | /  |         / __  |     / ____/
+   /   |/   |        / /  | |    / /
+  / /|   /| |       / /  / /    / /
+ / / |  / | |      / /__/ /    | |____
+/_/  |_/  |_| eta /______/ ata  \____/ leaner'''
 
 def sha256_file(some_path):
     # shamelessly stolen
