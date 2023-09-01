@@ -20,6 +20,7 @@ def make_parser():
                         , help='end of the timeperiod to extract data for'
                         , default='Dec 31 2100') # Hope nobody is using this in 77 years
     parser.add_argument('-o', '--out', help='path to write cleaned archive to')
+    parser.add_argument('-q', '--quiet', action='store_true', help='skip printing the banner')
     
     return parser
 
@@ -47,6 +48,14 @@ def make_logger(out_path):
     logger.addHandler(fh)
 
     return logger
+
+def banner():
+    return '''     __   __           ______       ______
+    /  | /  |         / ___  |     / ____/
+   /   |/   |        / /   | |    / /
+  / /|   /| |       / /    / |   / /
+ / / |  / | |      / /____/ /    | |____
+/_/  |_/  |_| eta /________/ ata  \____/ leaner'''
 
 def sha256_file(some_path):
     # shamelessly stolen
@@ -134,6 +143,7 @@ def get_media_srcs(html):
 
 if __name__ == '__main__':
     SUFFIX = '_CLEANED'
+    welcome = 'Starting Meta Data Cleaner'
     out_path = ''
 
     # get arguments
@@ -155,6 +165,9 @@ if __name__ == '__main__':
     
     # log things now that we can
     logger.debug(args)
+    if not args.quiet:
+        welcome += '\n{}'.format(banner())
+    logger.info(welcome)
     if zipfile.is_zipfile(args.path):
         logger.info('Using {} as input file'.format(args.path))
     else:
