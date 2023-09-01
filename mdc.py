@@ -112,7 +112,7 @@ def delete_divs(html, start, end):
                         e.decompose()
                 except RecursionError:
                     logger.error('RecursionError encountered')
-                    logger.debug('stamp.text: {}'.format(e.text))
+                    logger.debug('e.text: {}'.format(e.text))
                     exit(1)
     return str(soup)
 
