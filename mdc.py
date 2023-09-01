@@ -14,10 +14,10 @@ def make_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument('path', help='path to data archvie')
     parser.add_argument('-s', '--start'
-                        , help='start of the timeperiod to extract data for (exclusive)'
+                        , help='start of the timeperiod to extract data for'
                         , default='Jan 01 1970')
     parser.add_argument('-e', '--end'
-                        , help='end of the timeperiod to extract data for (inclusive)'
+                        , help='end of the timeperiod to extract data for'
                         , default='Dec 31 2100') # Hope nobody is using this in 77 years
     parser.add_argument('-o', '--out', help='path to write cleaned archive to')
     
@@ -61,19 +61,22 @@ def sha256_file(some_path):
             HASH.update(data)
     return HASH
 
+def min_max_ts(ts_list):
+    logger.debug(ts_list)
+    min_ts = dateparser.parse(ts_list[0])
+    max_ts = min_ts
+    for t in ts_list:
+        logger.debug('parsed_date: {}'.format(t))
+        temp_ts = dateparser.parse(t)
+        if temp_ts < min_ts:
+            min_ts = temp_ts
+        elif temp_ts > max_ts:
+            max_ts = temp_ts
+    return (min_ts, max_ts)
+
 # Function to check if date is in given range
-def is_date_in_range(date_string, start, end):
-    parsed_date = dateparser.parse(date_string)
-    logger.debug('parsed_date: {}'.format(parsed_date))
-    if parsed_date is None:
-        return True
-    logger.debug('start: {}'.format(start))
-    start_date = dateparser.parse(start)
-    logger.debug('start_date: {}'.format(start_date))
-    end_date = dateparser.parse(end)
-    logger.debug('end_date: {}'.format(end_date))
-    
-    return (start_date <= parsed_date < end_date)
+def is_date_in_range(min_ts, max_ts, start_dt, end_dt):
+    return not ((max_ts < start_dt) or (min_ts >= end_dt))
 
 def delete_divs(html, start, end):
     # div classes that contain content
@@ -84,7 +87,8 @@ def delete_divs(html, start, end):
     # August 3, 2021 at 10:11 AM
     # Jul 14, 2023, 5:32 PM
     # one pattern to rule them all
-    ts_pattern = r'^\w+\s\d{1,2},\s\d{4},?\s(at )?\d{1,2}:\d{2}(:\d{2}|\s)\w+$'
+    # extra stuff because .text makes things hard
+    ts_pattern = r'(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s\d{1,2},\s\d{4},?\s(?:at )?\d{1,2}:\d{2}(?::\d{2}|\s)(?:am|pm)'
 
     # make soup
     soup = BeautifulSoup(html, 'html.parser')
@@ -94,23 +98,22 @@ def delete_divs(html, start, end):
         entries = soup.find_all('div', class_=ec)
 
         # find timestamps
-        # look for div elements whose entire .text matches ts_pattern
         for e in entries:
-            content_divs = e.find_all('div')
-            for cd in content_divs:
-                # check the length of the supposed timestamp to avoid recursion issues
-                # if it's too long, it's probably a parent div that will be sub-parsed
-                if len(cd.text) > 50:
-                    continue
-                if re.match(ts_pattern, cd.text):
-                    try:
-                        if not is_date_in_range(cd.text, start, end):
-                            logger.info('Deleting div for date {}'.format(cd.text))
-                            e.decompose()
-                    except RecursionError:
-                        logger.error('RecursionError encountered')
-                        logger.debug('stamp.text: {}'.format(cd.text))
-                        exit(1)
+            # TODO: new tact - find all timestamps, only delete content totally outside target time range
+            timestamps = re.findall(ts_pattern, e.text, re.I)
+            if timestamps:
+                
+                e_min_ts, e_max_ts = min_max_ts(timestamps)
+                try:
+                    if not is_date_in_range(e_min_ts, e_max_ts, start, end):
+                        if len(timestamps) > 1:
+                            logger.debug('MARK - multiple dates outside range')
+                        logger.info('Deleting div with min date {} and max date {}'.format(e_min_ts, e_max_ts))
+                        e.decompose()
+                except RecursionError:
+                    logger.error('RecursionError encountered')
+                    logger.debug('stamp.text: {}'.format(e.text))
+                    exit(1)
     return str(soup)
 
 def get_media_srcs(html):
@@ -187,7 +190,7 @@ if __name__ == '__main__':
                     logger.info('Parsing {}'.format(item.filename))
                     with in_zip.open(item, 'r') as in_file:
                         # remove divs based on the time
-                        out_html = delete_divs(in_file.read(), args.start, args.end)
+                        out_html = delete_divs(in_file.read(), start_dt, end_dt)
 
                         # copy any media still needed by the clean document
                         media_srcs = get_media_srcs(out_html)
